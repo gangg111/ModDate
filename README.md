@@ -1,6 +1,6 @@
 # ModDate
 
-Mała aplikacja okienkowa dla Windows (C++ / WinAPI) do zmiany daty i godziny modyfikacji pliku.
+Mała aplikacja okienkowa w ciemnym motywie dla Windows (C++ / WinAPI) do zmiany daty i godziny modyfikacji pliku.
 
 ![ModDate](docs/screenshot.png)
 
@@ -10,7 +10,8 @@ Mała aplikacja okienkowa dla Windows (C++ / WinAPI) do zmiany daty i godziny mo
 
 1. Kliknij pole pliku lub przycisk z ikoną folderu i wybierz plik. Możesz też przeciągnąć plik do okna albo na ikonę `ModDate.exe`.
 2. W karcie **Data modyfikacji pliku** widać obecną datę modyfikacji (oraz datę utworzenia i ostatniego dostępu).
-3. W polu obok przycisku **Aktualizuj** wpisz nową datę i godzinę (`dd.MM.rrrr  GG:mm:ss`) albo wybierz ją z kalendarza (strzałka).
+3. W polu obok przycisku **Aktualizuj** wpisz nową datę i godzinę (`dd.MM.rrrr  GG:mm:ss`) albo wybierz dzień z kalendarza (ikona po prawej stronie pola).
+   W polu można też zmieniać wartości strzałkami ↑/↓ lub kółkiem myszy, a ←/→ przechodzi między dniem, miesiącem, rokiem, godziną, minutą i sekundą.
    Przycisk **Aktualny** wstawia do pola bieżącą datę i godzinę.
 4. Kliknij **Aktualizuj**, a data modyfikacji pliku zostanie zmieniona.
 

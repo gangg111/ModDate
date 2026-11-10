@@ -12,6 +12,7 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include <gdiplus.h>
+#include <uxtheme.h>
 #include <string>
 
 #ifdef _MSC_VER
@@ -20,6 +21,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "uxtheme.lib")
 #endif
 
 using namespace Gdiplus;
@@ -30,33 +32,41 @@ enum { IDC_BROWSE = 101, IDC_UPDATE, IDC_DATETIME, IDC_NOW };
 // Wymiary w jednostkach niezależnych od DPI (96 DPI)
 static const int WIN_W = 600, WIN_H = 474, MARGIN = 20, PAD = 18;
 
-// Paleta (styl Windows 11)
-static const COLORREF CLR_BG          = RGB(243, 243, 243);
-static const COLORREF CLR_CARD        = RGB(255, 255, 255);
-static const COLORREF CLR_CARD_BORDER = RGB(229, 229, 229);
-static const COLORREF CLR_TEXT        = RGB(27, 27, 27);
-static const COLORREF CLR_TEXT2       = RGB(96, 96, 96);
-static const COLORREF CLR_LABEL       = RGB(112, 112, 112);
-static const COLORREF CLR_ACCENT      = RGB(0, 103, 192);
-static const COLORREF CLR_ACCENT_HOT  = RGB(25, 117, 197);
-static const COLORREF CLR_ACCENT_DOWN = RGB(0, 84, 158);
-static const COLORREF CLR_ACCENT_SOFT = RGB(232, 241, 251);
-static const COLORREF CLR_ACCENT_SOFT2= RGB(214, 231, 248);
-static const COLORREF CLR_FIELD       = RGB(250, 250, 250);
-static const COLORREF CLR_FIELD_HOT   = RGB(243, 248, 253);
-static const COLORREF CLR_FIELD_BORDER= RGB(209, 209, 209);
-static const COLORREF CLR_OK_BG       = RGB(223, 246, 221);
-static const COLORREF CLR_OK          = RGB(16, 124, 16);
-static const COLORREF CLR_ERR_BG      = RGB(253, 231, 233);
-static const COLORREF CLR_ERR         = RGB(196, 43, 28);
-static const COLORREF CLR_INFO_BG     = RGB(234, 234, 234);
-static const COLORREF CLR_INFO        = RGB(96, 96, 96);
+// Paleta – ciemny motyw (styl Windows 11)
+static const COLORREF CLR_BG          = RGB(32, 32, 32);
+static const COLORREF CLR_CARD        = RGB(43, 43, 43);
+static const COLORREF CLR_CARD_BORDER = RGB(56, 56, 56);
+static const COLORREF CLR_TEXT        = RGB(255, 255, 255);
+static const COLORREF CLR_TEXT2       = RGB(176, 176, 176);
+static const COLORREF CLR_LABEL       = RGB(150, 150, 150);
+static const COLORREF CLR_ACCENT      = RGB(96, 205, 255);   // tekst / ikony akcentu
+static const COLORREF CLR_BTN         = RGB(76, 194, 255);   // przycisk główny
+static const COLORREF CLR_BTN_HOT     = RGB(71, 177, 232);
+static const COLORREF CLR_BTN_DOWN    = RGB(66, 161, 210);
+static const COLORREF CLR_BTN_TEXT    = RGB(0, 0, 0);
+static const COLORREF CLR_SEC         = RGB(55, 55, 55);     // przycisk drugorzędny
+static const COLORREF CLR_SEC_HOT     = RGB(61, 61, 61);
+static const COLORREF CLR_SEC_DOWN    = RGB(50, 50, 50);
+static const COLORREF CLR_DIS_BG      = RGB(58, 58, 58);
+static const COLORREF CLR_DIS_TEXT    = RGB(120, 120, 120);
+static const COLORREF CLR_ACCENT_SOFT = RGB(42, 56, 70);
+static const COLORREF CLR_ACCENT_SOFT2= RGB(50, 68, 88);
+static const COLORREF CLR_FIELD       = RGB(50, 50, 50);
+static const COLORREF CLR_FIELD_HOT   = RGB(56, 56, 56);
+static const COLORREF CLR_FIELD_FOCUS = RGB(31, 31, 31);
+static const COLORREF CLR_FIELD_BORDER= RGB(72, 72, 72);
+static const COLORREF CLR_OK_BG       = RGB(57, 61, 27);
+static const COLORREF CLR_OK          = RGB(108, 203, 95);
+static const COLORREF CLR_ERR_BG      = RGB(68, 39, 38);
+static const COLORREF CLR_ERR         = RGB(255, 153, 164);
+static const COLORREF CLR_INFO_BG     = RGB(51, 51, 51);
+static const COLORREF CLR_INFO        = RGB(197, 197, 197);
 
 // ---------------------------------------------------------------- stan -----
 static HINSTANCE g_inst;
 static HWND g_hwnd, g_browse, g_update, g_dt, g_now;
 static int g_dpi = 96;
-static HFONT fTitle, fSub, fLabel, fBody, fBodyBold, fBig, fBtn, fSmall;
+static HFONT fTitle, fSub, fLabel, fBody, fBodyBold, fBig, fBtn, fSmall, fField;
 static HICON g_appIcon, g_fileIcon;
 static std::wstring g_file;
 static bool g_hasTimes;
@@ -183,7 +193,7 @@ static void DrawFolderGlyph(HDC dc, RECT rc, COLORREF c) {
     RoundPath(body, RectF(x, y + h * 0.2f, w, h * 0.8f), (REAL)S(2));
     g.FillPath(&b, &tab);
     g.FillPath(&b, &body);
-    SolidBrush light(Color(70, 255, 255, 255));
+    SolidBrush light(Color(60, 0, 0, 0));
     g.FillRectangle(&light, x + (REAL)S(2), y + h * 0.2f + (REAL)S(3), w - (REAL)S(4), (REAL)S(1));
 }
 
@@ -191,10 +201,10 @@ static void DrawFolderGlyph(HDC dc, RECT rc, COLORREF c) {
 static void DrawDocGlyph(HDC dc, RECT rc) {
     int w = rc.right - rc.left, h = rc.bottom - rc.top;
     RECT page = {rc.left + w / 6, rc.top + h / 16, rc.right - w / 6, rc.bottom - h / 16};
-    FillRR(dc, page, S(3), RGB(255, 255, 255), RGB(150, 160, 175), (REAL)S(1));
+    FillRR(dc, page, S(3), RGB(62, 62, 62), RGB(110, 110, 110), (REAL)S(1));
     for (int i = 0; i < 3; ++i) {
         RECT ln = {page.left + S(5), page.top + S(8) + i * S(6), page.right - S(5), page.top + S(10) + i * S(6)};
-        FillRR(dc, ln, S(1), CLR_ACCENT_SOFT2);
+        FillRR(dc, ln, S(1), RGB(90, 130, 160));
     }
 }
 
@@ -270,7 +280,7 @@ static void Paint(HDC target) {
         FillRect(dc, &sep, sb);
         DeleteObject(sb);
     } else {
-        Text(dc, L"— —", big, fBig, CLR_FIELD_BORDER, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        Text(dc, L"— —", big, fBig, RGB(85, 85, 85), DT_LEFT | DT_SINGLELINE | DT_VCENTER);
         Text(dc, L"Nie wybrano pliku", sub, fSmall, CLR_TEXT2, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     }
 
@@ -319,21 +329,21 @@ static void DrawButton(const DRAWITEMSTRUCT* d) {
     int rad = S(6);
 
     if (d->CtlID == IDC_UPDATE) {  // przycisk główny – akcent
-        COLORREF fill = dis ? RGB(235, 235, 235) : down ? CLR_ACCENT_DOWN : hot ? CLR_ACCENT_HOT : CLR_ACCENT;
-        FillRR(dc, lr, rad, fill, dis ? RGB(225, 225, 225) : CLR_NONE);
+        COLORREF fill = dis ? CLR_DIS_BG : down ? CLR_BTN_DOWN : hot ? CLR_BTN_HOT : CLR_BTN;
+        FillRR(dc, lr, rad, fill);
         if (focus) {
             RECT fr = {S(2), S(2), w - S(2), h - S(2)};
-            FillRR(dc, fr, rad - S(1), fill, RGB(255, 255, 255), (REAL)S(1));
+            FillRR(dc, fr, rad - S(1), fill, CLR_CARD, (REAL)S(1));
         }
-        Text(dc, L"Aktualizuj", lr, fBtn, dis ? RGB(160, 160, 160) : RGB(255, 255, 255),
+        Text(dc, L"Aktualizuj", lr, fBtn, dis ? CLR_DIS_TEXT : CLR_BTN_TEXT,
              DT_CENTER | DT_SINGLELINE | DT_VCENTER);
     } else if (d->CtlID == IDC_BROWSE) {  // przycisk z ikoną folderu
         COLORREF fill = down ? CLR_ACCENT_SOFT2 : hot ? CLR_ACCENT_SOFT2 : CLR_ACCENT_SOFT;
-        FillRR(dc, lr, rad, fill, focus ? CLR_ACCENT : (hot ? RGB(190, 214, 240) : CLR_NONE),
+        FillRR(dc, lr, rad, fill, focus ? CLR_ACCENT : (hot ? RGB(70, 100, 130) : CLR_NONE),
                (REAL)(focus ? S(2) : 1));
-        DrawFolderGlyph(dc, lr, down ? CLR_ACCENT_DOWN : CLR_ACCENT);
+        DrawFolderGlyph(dc, lr, down ? CLR_BTN_DOWN : CLR_ACCENT);
     } else {  // przycisk drugorzędny
-        COLORREF fill = down ? RGB(240, 240, 240) : hot ? RGB(246, 246, 246) : RGB(255, 255, 255);
+        COLORREF fill = down ? CLR_SEC_DOWN : hot ? CLR_SEC_HOT : CLR_SEC;
         FillRR(dc, lr, rad, fill, focus ? CLR_ACCENT : CLR_FIELD_BORDER, (REAL)(focus ? S(2) : 1));
         wchar_t txt[64];
         GetWindowTextW(d->hwndItem, txt, 64);
@@ -373,6 +383,301 @@ static LRESULT CALLBACK ButtonProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR 
     return DefSubclassProc(h, m, w, l);
 }
 
+// ------------------------------------------------ pole daty i godziny ------
+// Własna kontrolka (ciemna), segmenty: 0 dzień, 1 miesiąc, 2 rok, 3 godz., 4 min., 5 sek.
+static SYSTEMTIME g_val;
+static int g_seg = 0;
+static std::wstring g_typed;
+static bool g_fieldHot, g_calHot;
+static RECT g_segRc[6], g_calRc;
+static HWND g_cal;
+static const UINT WM_APP_CLOSECAL = WM_APP + 1;
+
+static int DaysIn(int y, int m) {
+    static const int d[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+    return d[(m + 11) % 12];
+}
+static WORD* SegPtr(int s) {
+    switch (s) {
+    case 0: return &g_val.wDay;
+    case 1: return &g_val.wMonth;
+    case 2: return &g_val.wYear;
+    case 3: return &g_val.wHour;
+    case 4: return &g_val.wMinute;
+    default: return &g_val.wSecond;
+    }
+}
+static void SegRange(int s, int& lo, int& hi) {
+    switch (s) {
+    case 0: lo = 1; hi = DaysIn(g_val.wYear, g_val.wMonth); break;
+    case 1: lo = 1; hi = 12; break;
+    case 2: lo = 1601; hi = 9999; break;
+    case 3: lo = 0; hi = 23; break;
+    default: lo = 0; hi = 59;
+    }
+}
+static void FixDay() {
+    int dm = DaysIn(g_val.wYear, g_val.wMonth);
+    if (g_val.wDay > dm) g_val.wDay = (WORD)dm;
+    if (g_val.wDay < 1) g_val.wDay = 1;
+}
+static void FieldChanged() {
+    g_val.wMilliseconds = 0;
+    InvalidateRect(g_dt, nullptr, FALSE);
+}
+static void FieldSet(const SYSTEMTIME& st) {
+    g_val = st;
+    g_typed.clear();
+    FixDay();
+    FieldChanged();
+}
+static void CommitTyped() {
+    if (g_typed.empty()) return;
+    int v = _wtoi(g_typed.c_str()), lo, hi;
+    g_typed.clear();
+    SegRange(g_seg, lo, hi);
+    if (!(g_seg == 2 && v < lo)) {  // niepełny rok – zostaw poprzedni
+        if (v < lo) v = lo;
+        if (v > hi) v = hi;
+        *SegPtr(g_seg) = (WORD)v;
+        FixDay();
+    }
+    FieldChanged();
+}
+static void SelectSeg(int s) {
+    CommitTyped();
+    g_seg = s < 0 ? 0 : s > 5 ? 5 : s;
+    FieldChanged();
+}
+static void Step(int d) {
+    CommitTyped();
+    int lo, hi;
+    SegRange(g_seg, lo, hi);
+    int v = *SegPtr(g_seg) + d;
+    if (g_seg == 2) v = v < lo ? lo : v > hi ? hi : v;
+    else {
+        int n = hi - lo + 1;
+        v = lo + ((v - lo) % n + n) % n;
+    }
+    *SegPtr(g_seg) = (WORD)v;
+    FixDay();
+    FieldChanged();
+}
+static void TypeDigit(wchar_t c) {
+    g_typed += c;
+    int v = _wtoi(g_typed.c_str()), lo, hi;
+    SegRange(g_seg, lo, hi);
+    size_t maxLen = g_seg == 2 ? 4 : 2;
+    if (g_typed.size() >= maxLen || (g_seg != 2 && v * 10 > hi)) {
+        CommitTyped();
+        if (g_seg < 5) g_seg++;
+    }
+    FieldChanged();
+}
+
+static void DrawCalGlyph(HDC dc, RECT rc, COLORREF c) {
+    Graphics g(dc);
+    g.SetSmoothingMode(SmoothingModeAntiAlias);
+    REAL w = (REAL)S(16), h = (REAL)S(15);
+    REAL x = (rc.left + rc.right - w) / 2, y = (rc.top + rc.bottom - h) / 2;
+    GraphicsPath p;
+    RoundPath(p, RectF(x, y, w, h), (REAL)S(2));
+    Pen pen(GC(c), (REAL)S(1) * 1.3f);
+    g.DrawPath(&pen, &p);
+    SolidBrush b(GC(c));
+    g.FillRectangle(&b, x, y, w, h * 0.27f);
+    REAL ds = (REAL)S(2) + 0.5f;
+    for (int r = 0; r < 2; ++r)
+        for (int k = 0; k < 3; ++k)
+            g.FillRectangle(&b, x + w * (0.2f + k * 0.25f), y + h * (0.45f + r * 0.25f), ds, ds);
+}
+
+static void PaintField(HWND h, HDC target) {
+    RECT rc;
+    GetClientRect(h, &rc);
+    HDC dc = CreateCompatibleDC(target);
+    HBITMAP bmp = CreateCompatibleBitmap(target, rc.right, rc.bottom);
+    HGDIOBJ ob = SelectObject(dc, bmp);
+    HBRUSH bg = CreateSolidBrush(CLR_CARD);
+    FillRect(dc, &rc, bg);
+    DeleteObject(bg);
+
+    bool focus = GetFocus() == h;
+    FillRR(dc, rc, S(6), focus ? CLR_FIELD_FOCUS : g_fieldHot ? CLR_FIELD_HOT : CLR_FIELD,
+           focus ? CLR_ACCENT : CLR_FIELD_BORDER);
+
+    g_calRc = {rc.right - S(40), S(5), rc.right - S(5), rc.bottom - S(5)};
+    if (g_calHot || g_cal) FillRR(dc, g_calRc, S(4), RGB(70, 70, 70));
+    DrawCalGlyph(dc, g_calRc, g_cal ? CLR_ACCENT : CLR_TEXT2);
+
+    static const wchar_t* sep[] = {L".", L".", L"     ", L":", L":"};
+    int x = S(14);
+    for (int i = 0; i < 6; ++i) {
+        wchar_t b[8];
+        if (focus && i == g_seg && !g_typed.empty()) lstrcpynW(b, g_typed.c_str(), 8);
+        else wsprintfW(b, i == 2 ? L"%04d" : L"%02d", *SegPtr(i));
+        int w = TextWidth(dc, i == 2 ? L"0000" : L"00", fField);
+        RECT sr = {x - S(3), rc.top + S(7), x + w + S(3), rc.bottom - S(7)};
+        bool sel = focus && i == g_seg;
+        if (sel) FillRR(dc, sr, S(4), CLR_BTN);
+        Text(dc, b, sr, fField, sel ? CLR_BTN_TEXT : CLR_TEXT, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        g_segRc[i] = sr;
+        x += w;
+        if (i < 5) {
+            int sw = TextWidth(dc, sep[i], fField);
+            RECT tr = {x, rc.top, x + sw + S(2), rc.bottom};
+            Text(dc, sep[i], tr, fField, CLR_TEXT2, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            x += sw + S(2);
+        }
+    }
+    BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, ob);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+}
+
+static void CloseCalendar(bool refocus) {
+    if (!g_cal) return;
+    HWND c = g_cal;
+    g_cal = nullptr;
+    DestroyWindow(c);
+    if (refocus) SetFocus(g_dt);
+    InvalidateRect(g_dt, nullptr, FALSE);
+}
+
+static LRESULT CALLBACK CalProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR) {
+    if (m == WM_KILLFOCUS) {
+        HWND nf = (HWND)w;
+        if (!nf || (nf != h && !IsChild(h, nf))) PostMessageW(g_hwnd, WM_APP_CLOSECAL, 0, 0);
+    } else if (m == WM_KEYDOWN && w == VK_ESCAPE) {
+        PostMessageW(g_hwnd, WM_APP_CLOSECAL, 1, 0);
+        return 0;
+    } else if (m == WM_NCDESTROY) {
+        RemoveWindowSubclass(h, CalProc, id);
+    }
+    return DefSubclassProc(h, m, w, l);
+}
+
+static void ToggleCalendar() {
+    if (g_cal) { CloseCalendar(true); return; }
+    CommitTyped();
+    g_cal = CreateWindowExW(WS_EX_TOOLWINDOW, MONTHCAL_CLASSW, L"", WS_POPUP | WS_BORDER,
+                            0, 0, 0, 0, g_hwnd, nullptr, g_inst, nullptr);
+    if (!g_cal) return;
+    SetWindowTheme(g_cal, L"", L"");  // bez stylu systemowego => można ustawić własne kolory
+    SendMessageW(g_cal, WM_SETFONT, (WPARAM)fBody, FALSE);
+    MonthCal_SetColor(g_cal, MCSC_BACKGROUND, CLR_CARD);
+    MonthCal_SetColor(g_cal, MCSC_MONTHBK, CLR_CARD);
+    MonthCal_SetColor(g_cal, MCSC_TEXT, CLR_TEXT);
+    MonthCal_SetColor(g_cal, MCSC_TITLEBK, CLR_BTN);
+    MonthCal_SetColor(g_cal, MCSC_TITLETEXT, CLR_BTN_TEXT);
+    MonthCal_SetColor(g_cal, MCSC_TRAILINGTEXT, RGB(105, 105, 105));
+    MonthCal_SetCurSel(g_cal, &g_val);
+    RECT mr = {};
+    MonthCal_GetMinReqRect(g_cal, &mr);
+    int tw = (int)MonthCal_GetMaxTodayWidth(g_cal);
+    if (mr.right < tw) mr.right = tw;
+    AdjustWindowRectEx(&mr, WS_POPUP | WS_BORDER, FALSE, WS_EX_TOOLWINDOW);
+    int cw = mr.right - mr.left, ch = mr.bottom - mr.top;
+    RECT fr;
+    GetWindowRect(g_dt, &fr);
+    int x = fr.right - cw, y = fr.bottom + S(4);
+    HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {sizeof(mi)};
+    if (GetMonitorInfoW(mon, &mi) && y + ch > mi.rcWork.bottom) y = fr.top - S(4) - ch;
+    SetWindowSubclass(g_cal, CalProc, 1, 0);
+    SetWindowPos(g_cal, HWND_TOP, x, y, cw, ch, SWP_SHOWWINDOW);
+    SetFocus(g_cal);
+    InvalidateRect(g_dt, nullptr, FALSE);
+}
+
+static LRESULT CALLBACK FieldProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+    case WM_GETDLGCODE:
+        return DLGC_WANTARROWS | DLGC_WANTCHARS;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        PaintField(h, dc);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_SETFOCUS:
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_KILLFOCUS:
+        CommitTyped();
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_LBUTTONDOWN: {
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        bool wasOpen = g_cal != nullptr;
+        SetFocus(h);
+        if (PtInRect(&g_calRc, pt)) {
+            if (!wasOpen) ToggleCalendar();
+            return 0;
+        }
+        int s = 5;
+        for (int i = 0; i < 6; ++i)
+            if (pt.x < g_segRc[i].right + S(3)) { s = i; break; }
+        SelectSeg(s);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        bool ch = PtInRect(&g_calRc, pt) != 0;
+        if (!g_fieldHot || ch != g_calHot) {
+            g_fieldHot = true;
+            g_calHot = ch;
+            TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
+            TrackMouseEvent(&t);
+            InvalidateRect(h, nullptr, FALSE);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        g_fieldHot = g_calHot = false;
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_SETCURSOR: {
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(h, &pt);
+        SetCursor(LoadCursor(nullptr, PtInRect(&g_calRc, pt) ? IDC_HAND : IDC_ARROW));
+        return TRUE;
+    }
+    case WM_MOUSEWHEEL:
+        Step(GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1 : -1);
+        return 0;
+    case WM_SYSKEYDOWN:
+        if (w == VK_DOWN) { ToggleCalendar(); return 0; }
+        break;
+    case WM_KEYDOWN:
+        switch (w) {
+        case VK_LEFT: SelectSeg(g_seg - 1); break;
+        case VK_RIGHT: SelectSeg(g_seg + 1); break;
+        case VK_UP: Step(1); break;
+        case VK_DOWN: Step(-1); break;
+        case VK_HOME: SelectSeg(0); break;
+        case VK_END: SelectSeg(5); break;
+        case VK_F4: ToggleCalendar(); break;
+        case VK_BACK:
+            if (!g_typed.empty()) { g_typed.pop_back(); FieldChanged(); }
+            else SelectSeg(g_seg - 1);
+            break;
+        }
+        return 0;
+    case WM_CHAR:
+        if (w >= L'0' && w <= L'9') TypeDigit((wchar_t)w);
+        else if (wcschr(L".:/-, ", (wchar_t)w)) SelectSeg(g_seg + 1);
+        return 0;
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+
 // ------------------------------------------------------------- logika ------
 static void SetStatus(int kind, const std::wstring& s) {
     g_statusKind = (decltype(g_statusKind))kind;
@@ -400,7 +705,7 @@ static void RefreshFileInfo(bool loadIntoPicker) {
     if (!g_file.empty() && !g_hasTimes)
         SetStatus(ST_ERR, L"Nie można odczytać pliku: " + ErrText(GetLastError()));
     EnableWindow(g_update, g_hasTimes);
-    if (g_hasTimes && loadIntoPicker) DateTime_SetSystemtime(g_dt, GDT_VALID, &g_mod);
+    if (g_hasTimes && loadIntoPicker) FieldSet(g_mod);
     InvalidateRect(g_hwnd, nullptr, FALSE);
 }
 
@@ -431,17 +736,15 @@ static void SetNow() {
     SYSTEMTIME st;
     GetLocalTime(&st);
     st.wMilliseconds = 0;
-    DateTime_SetSystemtime(g_dt, GDT_VALID, &st);
+    FieldSet(st);
 }
 
 static void DoUpdate() {
     if (g_file.empty()) return;
     SYSTEMTIME local = {}, utc;
     FILETIME ft;
-    if (DateTime_GetSystemtime(g_dt, &local) != GDT_VALID) {
-        SetStatus(ST_ERR, L"Nieprawidłowa data.");
-        return;
-    }
+    CommitTyped();
+    local = g_val;
     local.wMilliseconds = 0;
     if (!TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc) || !SystemTimeToFileTime(&utc, &ft)) {
         SetStatus(ST_ERR, L"Nieprawidłowa data.");
@@ -472,7 +775,7 @@ static HFONT MkFont(int px, int weight, const wchar_t* face = L"Segoe UI") {
 }
 
 static void CreateResources() {
-    HFONT* all[] = {&fTitle, &fSub, &fLabel, &fBody, &fBodyBold, &fBig, &fBtn, &fSmall};
+    HFONT* all[] = {&fTitle, &fSub, &fLabel, &fBody, &fBodyBold, &fBig, &fBtn, &fSmall, &fField};
     for (HFONT* f : all) if (*f) DeleteObject(*f);
     fTitle = MkFont(22, FW_SEMIBOLD);
     fSub = MkFont(14, FW_NORMAL);
@@ -482,6 +785,7 @@ static void CreateResources() {
     fBig = MkFont(28, FW_SEMIBOLD);
     fBtn = MkFont(15, FW_SEMIBOLD);
     fSmall = MkFont(13, FW_NORMAL);
+    fField = MkFont(16, FW_NORMAL);
     if (g_appIcon) DestroyIcon(g_appIcon);
     g_appIcon = (HICON)LoadImageW(g_inst, MAKEINTRESOURCEW(1), IMAGE_ICON, S(40), S(40), 0);
 }
@@ -505,15 +809,12 @@ static void Layout() {
     int x = rcCard3.left + p, xr = rcCard3.right - p;
     MoveWindow(g_update, x, y, bw1, h, TRUE);
     MoveWindow(g_now, xr - bw2, y, bw2, h, TRUE);
-    MoveWindow(g_dt, x + bw1 + gap, y + S(2), xr - bw2 - gap - (x + bw1 + gap), h - S(4), TRUE);
+    MoveWindow(g_dt, x + bw1 + gap, y, xr - bw2 - gap - (x + bw1 + gap), h, TRUE);
 
     rcStatus = {m, rcCard3.bottom + S(14), W - m, rcCard3.bottom + S(14 + 30)};
 }
 
-static void ApplyFonts() {
-    SendMessageW(g_dt, WM_SETFONT, (WPARAM)fBody, TRUE);
-    SendMessageW(g_dt, DTM_SETMCFONT, (WPARAM)fBody, TRUE);
-}
+static void ApplyFonts() { InvalidateRect(g_dt, nullptr, FALSE); }
 
 static UINT GetDpi(HWND hwnd) {
     typedef UINT(WINAPI * Fn)(HWND);
@@ -525,12 +826,15 @@ static UINT GetDpi(HWND hwnd) {
     return d;
 }
 
-// Kolor paska tytułu dopasowany do tła (Windows 11)
+// Ciemny pasek tytułu (Windows 10/11) w kolorze tła
 static void StyleTitleBar(HWND hwnd) {
     typedef HRESULT(WINAPI * Fn)(HWND, DWORD, LPCVOID, DWORD);
     HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
     if (!dwm) return;
     if (Fn fn = (Fn)(void*)GetProcAddress(dwm, "DwmSetWindowAttribute")) {
+        BOOL dark = TRUE;
+        if (FAILED(fn(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark))))
+            fn(hwnd, 19, &dark, sizeof(dark));  // starsze wersje Windows 10
         COLORREF cap = CLR_BG, txt = CLR_TEXT;
         fn(hwnd, 35 /*DWMWA_CAPTION_COLOR*/, &cap, sizeof(cap));
         fn(hwnd, 36 /*DWMWA_TEXT_COLOR*/, &txt, sizeof(txt));
@@ -554,9 +858,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         StyleTitleBar(hwnd);
         g_browse = MakeBtn(L"Wybierz plik", IDC_BROWSE);
         g_update = MakeBtn(L"Aktualizuj", IDC_UPDATE);
-        g_dt = CreateWindowExW(0, DATETIMEPICK_CLASSW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        g_dt = CreateWindowExW(0, L"ModDateField", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                                0, 0, 0, 0, hwnd, (HMENU)IDC_DATETIME, g_inst, nullptr);
-        DateTime_SetFormat(g_dt, L"  dd'.'MM'.'yyyy'     'HH':'mm':'ss");
         g_now = MakeBtn(L"Aktualny", IDC_NOW);
         ApplyFonts();
         SetNow();
@@ -595,6 +898,22 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         Paint(dc);
         EndPaint(hwnd, &ps);
         return 0;
+    }
+    case WM_APP_CLOSECAL:
+        CloseCalendar(wp != 0);
+        return 0;
+    case WM_NOTIFY: {
+        NMHDR* nh = (NMHDR*)lp;
+        if (g_cal && nh->hwndFrom == g_cal && nh->code == MCN_SELECT) {
+            const SYSTEMTIME& d = ((NMSELCHANGE*)lp)->stSelStart;
+            SYSTEMTIME v = g_val;
+            v.wYear = d.wYear;
+            v.wMonth = d.wMonth;
+            v.wDay = d.wDay;
+            FieldSet(v);
+            PostMessageW(hwnd, WM_APP_CLOSECAL, 1, 0);
+        }
+        break;
     }
     case WM_DRAWITEM:
         DrawButton((DRAWITEMSTRUCT*)lp);
@@ -676,6 +995,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int show) {
     wc.hIconSm = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                    GetSystemMetrics(SM_CYSMICON), 0);
     RegisterClassExW(&wc);
+
+    WNDCLASSEXW fc = {};
+    fc.cbSize = sizeof(fc);
+    fc.lpfnWndProc = FieldProc;
+    fc.hInstance = inst;
+    fc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    fc.lpszClassName = L"ModDateField";
+    RegisterClassExW(&fc);
 
     HDC sdc = GetDC(nullptr);
     g_dpi = GetDeviceCaps(sdc, LOGPIXELSX);
