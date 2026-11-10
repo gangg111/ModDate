@@ -55,11 +55,8 @@ static const COLORREF CLR_FIELD       = RGB(50, 50, 50);
 static const COLORREF CLR_FIELD_HOT   = RGB(56, 56, 56);
 static const COLORREF CLR_FIELD_FOCUS = RGB(31, 31, 31);
 static const COLORREF CLR_FIELD_BORDER= RGB(72, 72, 72);
-static const COLORREF CLR_OK_BG       = RGB(57, 61, 27);
 static const COLORREF CLR_OK          = RGB(108, 203, 95);
-static const COLORREF CLR_ERR_BG      = RGB(68, 39, 38);
 static const COLORREF CLR_ERR         = RGB(255, 153, 164);
-static const COLORREF CLR_INFO_BG     = RGB(51, 51, 51);
 static const COLORREF CLR_INFO        = RGB(197, 197, 197);
 
 // ---------------------------------------------------------------- stan -----
@@ -287,19 +284,12 @@ static void Paint(HDC target) {
     // --- karta 3: nowa data (kontrolki są oknami potomnymi)
     DrawCard(dc, rcCard3, L"NOWA DATA I GODZINA");
 
-    // --- pasek statusu
+    // --- pasek statusu (sam kolorowy tekst, bez tła)
     if (!g_status.empty()) {
-        COLORREF bgc = g_statusKind == ST_OK ? CLR_OK_BG : g_statusKind == ST_ERR ? CLR_ERR_BG : CLR_INFO_BG;
         COLORREF fg = g_statusKind == ST_OK ? CLR_OK : g_statusKind == ST_ERR ? CLR_ERR : CLR_INFO;
-        int tw = TextWidth(dc, g_status, fSmall);
-        int maxW = rcStatus.right - rcStatus.left;
-        int pw = tw + S(44);
-        if (pw > maxW) pw = maxW;
-        RECT pill = {rcStatus.left, rcStatus.top, rcStatus.left + pw, rcStatus.bottom};
-        FillRR(dc, pill, (pill.bottom - pill.top) / 2, bgc);
-        int cy = (pill.top + pill.bottom) / 2;
-        FillCircle(dc, pill.left + S(15), cy, S(4), fg);
-        RECT t = {pill.left + S(27), pill.top, pill.right - S(12), pill.bottom};
+        int cy = (rcStatus.top + rcStatus.bottom) / 2;
+        FillCircle(dc, rcStatus.left + S(6), cy, S(4), fg);
+        RECT t = {rcStatus.left + S(18), rcStatus.top, rcStatus.right, rcStatus.bottom};
         Text(dc, g_status, t, fSmall, fg, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     }
 
