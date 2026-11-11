@@ -12,7 +12,6 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include <gdiplus.h>
-#include <uxtheme.h>
 #include <string>
 
 #ifdef _MSC_VER
@@ -21,7 +20,6 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "uxtheme.lib")
 #endif
 
 using namespace Gdiplus;
@@ -71,7 +69,7 @@ static SYSTEMTIME g_mod, g_created, g_access;
 static ULONGLONG g_size;
 static enum { ST_INFO, ST_OK, ST_ERR } g_statusKind = ST_INFO;
 static std::wstring g_status = L"Wybierz plik, aby rozpocząć.";
-static bool g_zoneHover;
+static bool g_zoneHover, g_zonePress;
 static RECT rcCard1, rcCard2, rcCard3, rcZone, rcStatus;
 
 static int S(int v) { return MulDiv(v, g_dpi, 96); }
@@ -536,47 +534,269 @@ static void CloseCalendar(bool refocus) {
     InvalidateRect(g_dt, nullptr, FALSE);
 }
 
-static LRESULT CALLBACK CalProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR) {
-    if (m == WM_KILLFOCUS) {
-        HWND nf = (HWND)w;
-        if (!nf || (nf != h && !IsChild(h, nf))) PostMessageW(g_hwnd, WM_APP_CLOSECAL, 0, 0);
-    } else if (m == WM_KEYDOWN && w == VK_ESCAPE) {
-        PostMessageW(g_hwnd, WM_APP_CLOSECAL, 1, 0);
-        return 0;
-    } else if (m == WM_NCDESTROY) {
-        RemoveWindowSubclass(h, CalProc, id);
+// ------------------------------------------------- kalendarz (po polsku) ---
+static const wchar_t* MONTHS_NOM[] = {L"Styczeń", L"Luty", L"Marzec", L"Kwiecień", L"Maj", L"Czerwiec",
+                                      L"Lipiec", L"Sierpień", L"Wrzesień", L"Październik", L"Listopad", L"Grudzień"};
+static const wchar_t* WD_SHORT[] = {L"Pn", L"Wt", L"Śr", L"Cz", L"Pt", L"So", L"Nd"};
+static const int CAL_PAD = 12, CELL = 36, CAL_HEAD = 48, CAL_WD = 26;
+static const int CAL_W = 2 * CAL_PAD + 7 * CELL;
+static const int CAL_GRID = CAL_HEAD + CAL_WD + 4;
+static const int CAL_H = CAL_GRID + 6 * CELL + 6 + 34 + CAL_PAD;
+enum { HIT_NONE = -1, HIT_PREV = 100, HIT_NEXT, HIT_TODAY };
+static int g_cvY, g_cvM;          // widoczny miesiąc
+static SYSTEMTIME g_csel;         // zaznaczony dzień
+static int g_cHover = HIT_NONE, g_cPress = HIT_NONE;
+
+static int WeekdayMon0(int y, int m, int d) {  // 0 = poniedziałek
+    SYSTEMTIME st = {};
+    st.wYear = (WORD)y; st.wMonth = (WORD)m; st.wDay = (WORD)d;
+    FILETIME ft;
+    SystemTimeToFileTime(&st, &ft);
+    FileTimeToSystemTime(&ft, &st);
+    return (st.wDayOfWeek + 6) % 7;
+}
+static void CellDate(int i, int& y, int& m, int& d) {
+    y = g_cvY; m = g_cvM;
+    d = i - WeekdayMon0(g_cvY, g_cvM, 1) + 1;
+    if (d < 1) {
+        if (--m < 1) { m = 12; --y; }
+        d += DaysIn(y, m);
+    } else if (d > DaysIn(y, m)) {
+        d -= DaysIn(y, m);
+        if (++m > 12) { m = 1; ++y; }
     }
-    return DefSubclassProc(h, m, w, l);
+}
+static bool ValidYM(int y, int m) { return (y > 1601 || (y == 1601 && m >= 1)) && y <= 9999 && m >= 1 && m <= 12; }
+static void ShiftMonth(int d) {
+    int y = g_cvY, m = g_cvM + d;
+    while (m < 1) { m += 12; --y; }
+    while (m > 12) { m -= 12; ++y; }
+    if (ValidYM(y, m)) { g_cvY = y; g_cvM = m; }
+}
+static void SelAddDays(int days) {
+    FILETIME ft;
+    SystemTimeToFileTime(&g_csel, &ft);
+    ULARGE_INTEGER u;
+    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+    u.QuadPart += (LONGLONG)days * 864000000000LL;
+    ft.dwLowDateTime = u.LowPart; ft.dwHighDateTime = u.HighPart;
+    SYSTEMTIME n;
+    if (FileTimeToSystemTime(&ft, &n) && n.wYear >= 1601 && n.wYear <= 9999) g_csel = n;
+    g_cvY = g_csel.wYear; g_cvM = g_csel.wMonth;
+}
+static void CalCommit(int y, int m, int d) {
+    SYSTEMTIME v = g_val;
+    v.wYear = (WORD)y; v.wMonth = (WORD)m; v.wDay = (WORD)d;
+    FieldSet(v);
+    PostMessageW(g_hwnd, WM_APP_CLOSECAL, 1, 0);
+}
+static RECT CalBtnRect(int which) {
+    if (which == HIT_PREV) return {S(CAL_PAD), S(CAL_PAD), S(CAL_PAD + 32), S(CAL_PAD + 32)};
+    if (which == HIT_NEXT) return {S(CAL_W - CAL_PAD - 32), S(CAL_PAD), S(CAL_W - CAL_PAD), S(CAL_PAD + 32)};
+    int y = CAL_GRID + 6 * CELL + 6;
+    return {S(CAL_W / 2 - 50), S(y), S(CAL_W / 2 + 50), S(y + 32)};
+}
+static RECT CellRect(int i) {
+    int x = CAL_PAD + (i % 7) * CELL, y = CAL_GRID + (i / 7) * CELL;
+    return {S(x), S(y), S(x + CELL), S(y + CELL)};
+}
+static int CalHit(POINT pt) {
+    for (int w : {HIT_PREV, HIT_NEXT, HIT_TODAY}) {
+        RECT r = CalBtnRect(w);
+        if (PtInRect(&r, pt)) return w;
+    }
+    for (int i = 0; i < 42; ++i) {
+        RECT r = CellRect(i);
+        if (PtInRect(&r, pt)) return i;
+    }
+    return HIT_NONE;
+}
+
+static void DrawChevron(HDC dc, RECT rc, bool left, COLORREF c) {
+    Graphics g(dc);
+    g.SetSmoothingMode(SmoothingModeAntiAlias);
+    REAL cx = (rc.left + rc.right) / 2.0f, cy = (rc.top + rc.bottom) / 2.0f, k = (REAL)S(4);
+    Pen pen(GC(c), (REAL)S(1) * 1.6f);
+    pen.SetStartCap(LineCapRound);
+    pen.SetEndCap(LineCapRound);
+    PointF pts[3] = {{cx + (left ? k / 2 : -k / 2), cy - k}, {cx + (left ? -k / 2 : k / 2), cy},
+                     {cx + (left ? k / 2 : -k / 2), cy + k}};
+    g.DrawLines(&pen, pts, 3);
+}
+
+static void PaintCal(HWND h, HDC target) {
+    RECT rc;
+    GetClientRect(h, &rc);
+    HDC dc = CreateCompatibleDC(target);
+    HBITMAP bmp = CreateCompatibleBitmap(target, rc.right, rc.bottom);
+    HGDIOBJ ob = SelectObject(dc, bmp);
+    HBRUSH bg = CreateSolidBrush(CLR_CARD);
+    FillRect(dc, &rc, bg);
+    DeleteObject(bg);
+    HBRUSH br = CreateSolidBrush(CLR_FIELD_BORDER);
+    FrameRect(dc, &rc, br);
+    DeleteObject(br);
+
+    // nagłówek: miesiąc i rok, strzałki
+    for (int w : {HIT_PREV, HIT_NEXT}) {
+        RECT r = CalBtnRect(w);
+        if (g_cHover == w) FillRR(dc, r, S(5), RGB(62, 62, 62));
+        DrawChevron(dc, r, w == HIT_PREV, CLR_TEXT);
+    }
+    wchar_t title[48];
+    wsprintfW(title, L"%s %d", MONTHS_NOM[g_cvM - 1], g_cvY);
+    RECT tr = {S(CAL_PAD + 36), S(CAL_PAD), S(CAL_W - CAL_PAD - 36), S(CAL_PAD + 32)};
+    Text(dc, title, tr, fBodyBold, CLR_TEXT, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+    // dni tygodnia
+    for (int i = 0; i < 7; ++i) {
+        RECT r = {S(CAL_PAD + i * CELL), S(CAL_HEAD), S(CAL_PAD + (i + 1) * CELL), S(CAL_HEAD + CAL_WD)};
+        Text(dc, WD_SHORT[i], r, fSmall, i >= 5 ? RGB(130, 130, 130) : CLR_LABEL, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    }
+
+    // siatka dni
+    SYSTEMTIME today;
+    GetLocalTime(&today);
+    for (int i = 0; i < 42; ++i) {
+        int y, m, d;
+        CellDate(i, y, m, d);
+        RECT r = CellRect(i);
+        int cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, rad = S(CELL / 2 - 2);
+        bool inMonth = m == g_cvM;
+        bool sel = y == g_csel.wYear && m == g_csel.wMonth && d == g_csel.wDay;
+        bool isToday = y == today.wYear && m == today.wMonth && d == today.wDay;
+        if (sel) FillCircle(dc, cx, cy, rad, g_cHover == i ? CLR_BTN_HOT : CLR_BTN);
+        else {
+            if (isToday) {
+                FillCircle(dc, cx, cy, rad, CLR_ACCENT);
+                FillCircle(dc, cx, cy, rad - S(1) - 1, g_cHover == i ? RGB(62, 62, 62) : CLR_CARD);
+            } else if (g_cHover == i) FillCircle(dc, cx, cy, rad, RGB(62, 62, 62));
+        }
+        wchar_t num[4];
+        wsprintfW(num, L"%d", d);
+        COLORREF c = sel ? CLR_BTN_TEXT : isToday ? CLR_ACCENT : inMonth ? CLR_TEXT : RGB(100, 100, 100);
+        Text(dc, num, r, sel ? fBodyBold : fBody, c, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    }
+
+    // przycisk "Dziś"
+    RECT tb = CalBtnRect(HIT_TODAY);
+    if (g_cHover == HIT_TODAY) FillRR(dc, tb, S(5), RGB(62, 62, 62));
+    Text(dc, L"Dziś", tb, fBtn, CLR_ACCENT, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+    BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, ob);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+}
+
+static LRESULT CALLBACK CalWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        PaintCal(h, dc);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_MOUSEACTIVATE:
+        return MA_ACTIVATE;
+    case WM_MOUSEMOVE: {
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        int hit = CalHit(pt);
+        if (hit != g_cHover) {
+            g_cHover = hit;
+            InvalidateRect(h, nullptr, FALSE);
+        }
+        TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
+        TrackMouseEvent(&t);
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        g_cHover = HIT_NONE;
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, g_cHover != HIT_NONE ? IDC_HAND : IDC_ARROW));
+        return TRUE;
+    case WM_LBUTTONDOWN: {
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        int hit = CalHit(pt);
+        if (hit == HIT_PREV || hit == HIT_NEXT) {
+            ShiftMonth(hit == HIT_PREV ? -1 : 1);
+            InvalidateRect(h, nullptr, FALSE);
+        }
+        g_cPress = hit;
+        return 0;
+    }
+    case WM_LBUTTONUP: {  // wybór dnia po puszczeniu przycisku (żeby kliknięcie nie "przeszło" do okna pod spodem)
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        int hit = CalHit(pt);
+        if (hit != g_cPress) return 0;
+        g_cPress = HIT_NONE;
+        if (hit == HIT_TODAY) {
+            SYSTEMTIME t;
+            GetLocalTime(&t);
+            CalCommit(t.wYear, t.wMonth, t.wDay);
+        } else if (hit >= 0 && hit < 42) {
+            int y, mo, d;
+            CellDate(hit, y, mo, d);
+            if (y >= 1601 && y <= 9999) CalCommit(y, mo, d);
+        }
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        ShiftMonth(GET_WHEEL_DELTA_WPARAM(w) > 0 ? -1 : 1);
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_KEYDOWN:
+        switch (w) {
+        case VK_LEFT: SelAddDays(-1); break;
+        case VK_RIGHT: SelAddDays(1); break;
+        case VK_UP: SelAddDays(-7); break;
+        case VK_DOWN: SelAddDays(7); break;
+        case VK_PRIOR: ShiftMonth(-1); break;
+        case VK_NEXT: ShiftMonth(1); break;
+        case VK_RETURN: case VK_SPACE: CalCommit(g_csel.wYear, g_csel.wMonth, g_csel.wDay); return 0;
+        case VK_ESCAPE: case VK_F4: PostMessageW(g_hwnd, WM_APP_CLOSECAL, 1, 0); return 0;
+        }
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    case WM_KILLFOCUS:
+        PostMessageW(g_hwnd, WM_APP_CLOSECAL, 0, 0);
+        return 0;
+    }
+    return DefWindowProcW(h, m, w, l);
 }
 
 static void ToggleCalendar() {
     if (g_cal) { CloseCalendar(true); return; }
     CommitTyped();
-    g_cal = CreateWindowExW(WS_EX_TOOLWINDOW, MONTHCAL_CLASSW, L"", WS_POPUP | WS_BORDER,
-                            0, 0, 0, 0, g_hwnd, nullptr, g_inst, nullptr);
-    if (!g_cal) return;
-    SetWindowTheme(g_cal, L"", L"");  // bez stylu systemowego => można ustawić własne kolory
-    SendMessageW(g_cal, WM_SETFONT, (WPARAM)fBody, FALSE);
-    MonthCal_SetColor(g_cal, MCSC_BACKGROUND, CLR_CARD);
-    MonthCal_SetColor(g_cal, MCSC_MONTHBK, CLR_CARD);
-    MonthCal_SetColor(g_cal, MCSC_TEXT, CLR_TEXT);
-    MonthCal_SetColor(g_cal, MCSC_TITLEBK, CLR_BTN);
-    MonthCal_SetColor(g_cal, MCSC_TITLETEXT, CLR_BTN_TEXT);
-    MonthCal_SetColor(g_cal, MCSC_TRAILINGTEXT, RGB(105, 105, 105));
-    MonthCal_SetCurSel(g_cal, &g_val);
-    RECT mr = {};
-    MonthCal_GetMinReqRect(g_cal, &mr);
-    int tw = (int)MonthCal_GetMaxTodayWidth(g_cal);
-    if (mr.right < tw) mr.right = tw;
-    AdjustWindowRectEx(&mr, WS_POPUP | WS_BORDER, FALSE, WS_EX_TOOLWINDOW);
-    int cw = mr.right - mr.left, ch = mr.bottom - mr.top;
+    g_csel = g_val;
+    g_cvY = g_val.wYear;
+    g_cvM = g_val.wMonth;
+    g_cHover = g_cPress = HIT_NONE;
+    int cw = S(CAL_W), ch = S(CAL_H);
     RECT fr;
     GetWindowRect(g_dt, &fr);
     int x = fr.right - cw, y = fr.bottom + S(4);
-    HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {sizeof(mi)};
-    if (GetMonitorInfoW(mon, &mi) && y + ch > mi.rcWork.bottom) y = fr.top - S(4) - ch;
-    SetWindowSubclass(g_cal, CalProc, 1, 0);
+    if (GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &mi)) {
+        if (y + ch > mi.rcWork.bottom) y = fr.top - S(4) - ch;
+        if (x < mi.rcWork.left) x = mi.rcWork.left;
+    }
+    g_cal = CreateWindowExW(WS_EX_TOOLWINDOW, L"ModDateCal", L"", WS_POPUP, 0, 0, 0, 0,
+                            g_hwnd, nullptr, g_inst, nullptr);
+    if (!g_cal) return;
+    typedef HRESULT(WINAPI * Fn)(HWND, DWORD, LPCVOID, DWORD);
+    if (HMODULE dwm = LoadLibraryW(L"dwmapi.dll")) {
+        if (Fn fn = (Fn)(void*)GetProcAddress(dwm, "DwmSetWindowAttribute")) {
+            int round = 3;  // DWMWCP_ROUNDSMALL – zaokrąglone rogi w Windows 11
+            fn(g_cal, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &round, sizeof(round));
+        }
+        FreeLibrary(dwm);
+    }
     SetWindowPos(g_cal, HWND_TOP, x, y, cw, ch, SWP_SHOWWINDOW);
     SetFocus(g_cal);
     InvalidateRect(g_dt, nullptr, FALSE);
@@ -892,19 +1112,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_APP_CLOSECAL:
         CloseCalendar(wp != 0);
         return 0;
-    case WM_NOTIFY: {
-        NMHDR* nh = (NMHDR*)lp;
-        if (g_cal && nh->hwndFrom == g_cal && nh->code == MCN_SELECT) {
-            const SYSTEMTIME& d = ((NMSELCHANGE*)lp)->stSelStart;
-            SYSTEMTIME v = g_val;
-            v.wYear = d.wYear;
-            v.wMonth = d.wMonth;
-            v.wDay = d.wDay;
-            FieldSet(v);
-            PostMessageW(hwnd, WM_APP_CLOSECAL, 1, 0);
-        }
-        break;
-    }
     case WM_DRAWITEM:
         DrawButton((DRAWITEMSTRUCT*)lp);
         return TRUE;
@@ -925,9 +1132,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InvalidateRect(hwnd, &rcZone, FALSE);
         }
         return 0;
+    case WM_LBUTTONDOWN: {
+        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        g_zonePress = PtInRect(&rcZone, pt) != 0;
+        return 0;
+    }
     case WM_LBUTTONUP: {
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-        if (PtInRect(&rcZone, pt)) Browse();
+        bool press = g_zonePress;
+        g_zonePress = false;
+        if (press && PtInRect(&rcZone, pt)) Browse();
         return 0;
     }
     case WM_SETCURSOR:
@@ -993,6 +1207,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int show) {
     fc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     fc.lpszClassName = L"ModDateField";
     RegisterClassExW(&fc);
+
+    WNDCLASSEXW cc = {};
+    cc.cbSize = sizeof(cc);
+    cc.style = CS_DROPSHADOW;
+    cc.lpfnWndProc = CalWndProc;
+    cc.hInstance = inst;
+    cc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    cc.lpszClassName = L"ModDateCal";
+    RegisterClassExW(&cc);
 
     HDC sdc = GetDC(nullptr);
     g_dpi = GetDeviceCaps(sdc, LOGPIXELSX);
