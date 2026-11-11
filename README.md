@@ -2,7 +2,9 @@
 
 Mała aplikacja okienkowa w ciemnym motywie dla Windows (C++ / WinAPI) do zmiany daty i godziny modyfikacji pliku.
 
-![ModDate](docs/screenshot.png)
+<p align="center">
+  <img src="docs/screenshot.png" alt="ModDate" width="600">
+</p>
 
 **Gotowy plik:** [`release/ModDate.exe`](release/ModDate.exe), jeden plik bez instalacji i bez dodatkowych DLL.
 
